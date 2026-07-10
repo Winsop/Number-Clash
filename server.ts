@@ -392,7 +392,7 @@ async function startServer() {
     socket.on("submit_secret", (payload: { roomId: string; playerId: string; sessionToken: string; secret: string }, callback) => {
       try {
         if (!validateSession(payload)) {
-          serverLog("game", `submit_secret unauthorized access attempt for roomId: ${payload.roomId}`);
+          serverLog("game", `[submit_secret] UNAUTHORIZED access attempt for roomId: ${payload.roomId}`);
           const err = { code: "UNAUTHORIZED", message: "Access denied. Token invalid." };
           if (callback) callback({ success: false, error: err });
           socket.emit("error", err);
@@ -404,7 +404,7 @@ async function startServer() {
         
         // Strict payload validation to protect against crashes
         if (typeof payload.secret !== "string" || !isValidDigitString(payload.secret)) {
-          serverLog("game", `submit_secret rejected invalid secret format for player slot ${player.slot} in room ${room.id}`);
+          serverLog("game", `[submit_secret] REJECTED invalid secret format for player slot ${player.slot} in room ${room.id}`);
           const err = { code: "INVALID_SECRET", message: "Secret key must be exactly 4 numeric digits." };
           if (callback) callback({ success: false, error: err });
           socket.emit("error", err);
@@ -414,19 +414,16 @@ async function startServer() {
         // Mark player's secret as submitted
         player.secretSubmitted = true;
         
-        serverLog("game", `Secret submitted by slot ${player.slot} in room ${room.id}`);
+        serverLog("game", `[submit_secret] Room: ${room.id} | Player: ${player.playerId} | Slot: ${player.slot} | Secret length: ${payload.secret.length}`);
         socket.emit("secret_locked", { success: true });
 
-        // Let player's secret be locked inside a temporary structure or the actual activeGame
+        // Get or create the game container (with empty secrets — will be filled below)
         let game = room.activeGameId ? games[room.activeGameId] : null;
         if (!game) {
-          // Initialize active game slots
-          if (!room.activeGameId) {
-            game = createGame(room.id, "", "");
-            serverLog("game", `Game created: ${game.id} for room: ${room.id}`);
-          } else {
-            game = games[room.activeGameId];
-          }
+          game = createGame(room.id, "", "");
+          // Reset startedAt — will be finalized when both secrets confirmed
+          game.startedAt = new Date().toISOString();
+          serverLog("game", `[submit_secret] Game container created: ${game.id} for room: ${room.id}`);
         }
 
         if (player.slot === 1) {
@@ -435,17 +432,30 @@ async function startServer() {
           game.player2Secret = payload.secret;
         }
 
-        // Notify room that a secret was submitted (without revealing it!)
+        // Compute ready flags for both players
+        const p1 = room.players.find(p => p.slot === 1);
+        const p2 = room.players.find(p => p.slot === 2);
+        const p1Ready = !!p1?.secretSubmitted;
+        const p2Ready = !!p2?.secretSubmitted;
+        const readyCount = (p1Ready ? 1 : 0) + (p2Ready ? 1 : 0);
+
+        serverLog("game", `[submit_secret] Room: ${room.id} | P1 (${p1?.playerId ?? "none"}) ready: ${p1Ready} | P2 (${p2?.playerId ?? "none"}) ready: ${p2Ready} | Ready count: ${readyCount}/2`);
+
+        // Notify room that this player's secret was submitted (without revealing it!)
         io.to(room.id).emit("player_ready_status", {
           slot: player.slot,
           ready: true
         });
 
+        serverLog("game", `[submit_secret] Emitted player_ready_status for slot ${player.slot} to room ${room.id}`);
+
         if (callback) callback({ success: true });
 
         // Trigger game start once both players have registered their secrets
         if (game.player1Secret && game.player2Secret) {
+          // Transition game and room to active state
           game.status = "IN_PROGRESS";
+          game.startedAt = new Date().toISOString(); // accurate start time
           room.status = "PLAYING";
 
           // Start active turn 1 timer
@@ -461,18 +471,22 @@ async function startServer() {
             game.timerEndsAt = null;
           }
 
-          serverLog("game", `Game started in room ${room.id}`);
+          serverLog("game", `[submit_secret] BOTH SECRETS READY — emitting game_started to room ${room.id} (gameId: ${game.id})`);
           io.to(room.id).emit("game_started", {
             turnTimerSec: room.turnTimerSec,
             firstTurnSlot: 1,
             timerEndsAt: game.timerEndsAt
           });
+          serverLog("game", `[submit_secret] game_started emitted successfully to room ${room.id}`);
+        } else {
+          serverLog("game", `[submit_secret] Waiting for other player's secret in room ${room.id} (p1Secret: ${!!game.player1Secret}, p2Secret: ${!!game.player2Secret})`);
         }
       } catch (err: any) {
-        serverLog("error", `submit_secret failed: ${err.message}`);
+        serverLog("error", `[submit_secret] FAILED with exception: ${err.message}`);
         if (callback) callback({ success: false, error: { code: "INTERNAL_ERROR", message: err.message } });
       }
     });
+
 
     // 4. SUBMIT GUESS
     socket.on("submit_guess", (payload: { roomId: string; playerId: string; sessionToken: string; guess: string }, callback) => {

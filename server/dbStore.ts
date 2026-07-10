@@ -101,6 +101,8 @@ export function createGame(
   player2Secret: string
 ): GameState {
   const id = generateId("gm");
+  // Game starts in WAITING status with empty secrets.
+  // submit_secret handler transitions it to IN_PROGRESS once both secrets are filled.
   const newGame: GameState = {
     id,
     roomId,
@@ -112,7 +114,7 @@ export function createGame(
     player2Guesses: [],
     currentTurnSlot: 1,
     turnNumber: 1,
-    status: "IN_PROGRESS",
+    status: "IN_PROGRESS",  // will be overridden by caller if secrets not yet set
     timerEndsAt: null,
     winnerSlot: null,
     startedAt: new Date().toISOString(),
@@ -122,11 +124,12 @@ export function createGame(
 
   games[id] = newGame;
   
-  // Set room state to active playing
+  // ONLY set room.activeGameId here. Do NOT set room.status = PLAYING.
+  // That transition happens in submit_secret once both players' secrets are confirmed.
   const room = rooms[roomId];
   if (room) {
     room.activeGameId = id;
-    room.status = "PLAYING";
+    // room.status intentionally left unchanged (stays READY)
   }
 
   return newGame;

@@ -194,20 +194,33 @@ export function useGameSocket() {
     });
 
     s.on("player_ready_status", (data: { slot: number; ready: boolean }) => {
+      console.log(`[DIAGNOSTICS] Receive player_ready_status: slot=${data.slot} ready=${data.ready}`);
       setRoomState((prev) => {
         if (!prev) return null;
-        return {
+        const updated = {
           ...prev,
           players: prev.players.map((p) => 
             p.slot === data.slot ? { ...p, secretSubmitted: data.ready } : p
           )
         };
+        const p1Ready = updated.players.find(p => p.slot === 1)?.secretSubmitted;
+        const p2Ready = updated.players.find(p => p.slot === 2)?.secretSubmitted;
+        console.log(`[DIAGNOSTICS] After player_ready_status update: P1 ready=${p1Ready} P2 ready=${p2Ready} roomStatus=${updated.status}`);
+        return updated;
       });
     });
 
     s.on("game_started", (data: { turnTimerSec: number | null; firstTurnSlot: number; timerEndsAt: string | null }) => {
       console.log("[DIAGNOSTICS] Receive game_started", data);
-      setRoomState((prev) => prev ? { ...prev, status: "PLAYING" } : null);
+      console.log(`[DIAGNOSTICS] game_started received — setting roomState.status=PLAYING and initialising gameState`);
+      setRoomState((prev) => {
+        if (!prev) {
+          console.log("[DIAGNOSTICS] game_started: roomState is null, cannot transition to PLAYING");
+          return null;
+        }
+        console.log(`[DIAGNOSTICS] game_started: roomState.status was ${prev.status}, transitioning to PLAYING`);
+        return { ...prev, status: "PLAYING" };
+      });
       setGameState({
         id: "active",
         roomId: roomStateRef.current?.id || "",
