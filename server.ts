@@ -18,7 +18,7 @@ import {
 import { evaluateGuess, isValidDigitString } from "./src/validation";
 import { ChatMessage, GuessRecord } from "./src/types";
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Simple profanity list for chat filter
 const BANNED_WORDS = ["fuck", "shit", "bitch", "asshole", "cunt", "bastard", "dick", "pussy", "nigger"];
