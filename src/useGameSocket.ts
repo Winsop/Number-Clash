@@ -195,6 +195,7 @@ export function useGameSocket() {
 
     s.on("player_ready_status", (data: { slot: number; ready: boolean }) => {
       console.log(`[DIAGNOSTICS] Receive player_ready_status: slot=${data.slot} ready=${data.ready}`);
+      console.log(`[DIAGNOSTICS] (11) player_ready_status received by socket=${s.id} currentSlot=${slotRef.current} roomId=${roomStateRef.current?.id || "none"}`);
       setRoomState((prev) => {
         if (!prev) return null;
         const updated = {
@@ -212,6 +213,7 @@ export function useGameSocket() {
 
     s.on("game_started", (data: { turnTimerSec: number | null; firstTurnSlot: number; timerEndsAt: string | null }) => {
       console.log("[DIAGNOSTICS] Receive game_started", data);
+      console.log(`[DIAGNOSTICS] (12) game_started received by socket=${s.id} currentSlot=${slotRef.current} roomId=${roomStateRef.current?.id || "none"}`);
       console.log(`[DIAGNOSTICS] game_started received — setting roomState.status=PLAYING and initialising gameState`);
       setRoomState((prev) => {
         if (!prev) {
@@ -528,6 +530,7 @@ export function useGameSocket() {
     const currentRoom = roomStateRef.current;
     if (!s || !currentRoom) return;
     setError(null);
+    console.log(`[DIAGNOSTICS] Emit submit_secret socket=${s.id} roomId=${currentRoom.id} playerId=${playerIdRef.current} slot=${slotRef.current} secretLength=${secret.length}`);
     s.emit("submit_secret", {
       roomId: currentRoom.id,
       playerId: playerIdRef.current,
