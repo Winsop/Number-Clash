@@ -90,12 +90,16 @@ export function useGameSocket() {
 
       const cachedPlayerId = localStorage.getItem("nc_player_id") || "";
       const cachedToken = localStorage.getItem("nc_session_token") || "";
+      console.log(`[DIAGNOSTICS] register_session emit: cachedPlayerId=${cachedPlayerId || "<empty>"} cachedToken=${cachedToken || "<empty>"}`);
 
       s.emit("register_session", { playerId: cachedPlayerId, sessionToken: cachedToken }, (res: { playerId: string; sessionToken: string }) => {
+        console.log(`[DIAGNOSTICS] register_session callback: returnedPlayerId=${res.playerId} returnedToken=${res.sessionToken}`);
+        console.log(`[DIAGNOSTICS] register_session callback before store: statePlayerId=${playerIdRef.current || "<empty>"} localStoragePlayerId=${localStorage.getItem("nc_player_id") || "<empty>"}`);
         setPlayerId(res.playerId);
         setSessionToken(res.sessionToken);
         localStorage.setItem("nc_player_id", res.playerId);
         localStorage.setItem("nc_session_token", res.sessionToken);
+        console.log(`[DIAGNOSTICS] register_session callback after store: statePlayerId=${res.playerId} localStoragePlayerId=${localStorage.getItem("nc_player_id") || "<empty>"}`);
 
         // Check if there is an active room to rejoin (from URL or localStorage)
         const urlParams = new URLSearchParams(window.location.search);
@@ -417,10 +421,17 @@ export function useGameSocket() {
         setError(res.error);
         return;
       }
+      console.log(`[DIAGNOSTICS] create_room callback: returnedPlayerId=${res.playerId} returnedSessionToken=${res.sessionToken} returnedRoomId=${res.roomId}`);
+      console.log(`[DIAGNOSTICS] create_room callback before store: statePlayerId=${playerIdRef.current || "<empty>"} localStoragePlayerId=${localStorage.getItem("nc_player_id") || "<empty>"}`);
       setSlot(1);
       setUsername("Host");
+      setPlayerId(res.playerId);
+      setSessionToken(res.sessionToken);
       localStorage.setItem("nc_room_code", res.roomCode);
+      localStorage.setItem("nc_player_id", res.playerId);
+      localStorage.setItem("nc_session_token", res.sessionToken);
       localStorage.setItem("nc_username", "Host");
+      console.log(`[DIAGNOSTICS] create_room callback after store: statePlayerId=${res.playerId} localStoragePlayerId=${localStorage.getItem("nc_player_id") || "<empty>"}`);
 
       setRoomState({
         id: res.roomId,
@@ -530,7 +541,7 @@ export function useGameSocket() {
     const currentRoom = roomStateRef.current;
     if (!s || !currentRoom) return;
     setError(null);
-    console.log(`[DIAGNOSTICS] Emit submit_secret socket=${s.id} roomId=${currentRoom.id} playerId=${playerIdRef.current} slot=${slotRef.current} secretLength=${secret.length}`);
+    console.log(`[DIAGNOSTICS] submitSecret emit: socket=${s.id} roomId=${currentRoom.id} playerId=${playerIdRef.current} statePlayerId=${playerIdRef.current || "<empty>"} localStoragePlayerId=${localStorage.getItem("nc_player_id") || "<empty>"} slot=${slotRef.current} secretLength=${secret.length}`);
     s.emit("submit_secret", {
       roomId: currentRoom.id,
       playerId: playerIdRef.current,
