@@ -14,6 +14,21 @@ export interface ConnectionState {
   opponentDisconnected: boolean;
 }
 
+// Module-level shared singleton socket connection
+let sharedSocket: Socket | null = null;
+
+function getSocket(): Socket {
+  if (!sharedSocket) {
+    sharedSocket = io({
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+  }
+  return sharedSocket;
+}
+
 export function useGameSocket() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [playerId, setPlayerId] = useState<string>("");
@@ -48,72 +63,132 @@ export function useGameSocket() {
   }>({ isStalled: false, stalledSlot: null, message: "" });
 
   const socketRef = useRef<Socket | null>(null);
+  
+  // Mutable refs to prevent stale closures in event listeners
+  const playerIdRef = useRef<string>("");
+  const sessionTokenRef = useRef<string>("");
+  const slotRef = useRef<1 | 2 | null>(null);
+  const usernameRef = useRef<string>("");
+  const roomStateRef = useRef<ActiveRoomState | null>(null);
 
-  // Initialize socket connection
+  useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
+  useEffect(() => { sessionTokenRef.current = sessionToken; }, [sessionToken]);
+  useEffect(() => { slotRef.current = slot; }, [slot]);
+  useEffect(() => { usernameRef.current = username; }, [username]);
+  useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
+
+  // Initialize socket connection & listeners exactly ONCE
   useEffect(() => {
-    // Read cached session values from localStorage
-    const cachedPlayerId = localStorage.getItem("nc_player_id") || "";
-    const cachedToken = localStorage.getItem("nc_session_token") || "";
-
-    const s = io({
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
-
+    const s = getSocket();
     socketRef.current = s;
     setSocket(s);
 
-    s.on("connect", () => {
+    const handleConnect = () => {
+      console.log(`[DIAGNOSTICS] Socket Connected: ${s.id}`);
       setConnection((prev) => ({ ...prev, connected: true, isReconnecting: false }));
       setError(null);
 
-      // Handshake / register session
+      const cachedPlayerId = localStorage.getItem("nc_player_id") || "";
+      const cachedToken = localStorage.getItem("nc_session_token") || "";
+
       s.emit("register_session", { playerId: cachedPlayerId, sessionToken: cachedToken }, (res: { playerId: string; sessionToken: string }) => {
         setPlayerId(res.playerId);
         setSessionToken(res.sessionToken);
         localStorage.setItem("nc_player_id", res.playerId);
         localStorage.setItem("nc_session_token", res.sessionToken);
+
+        // Check if there is an active room to rejoin (from URL or localStorage)
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlRoom = urlParams.get("room")?.toUpperCase() || "";
+        const storedRoom = localStorage.getItem("nc_room_code") || "";
+        const targetRoom = urlRoom || storedRoom;
+        const savedUsername = localStorage.getItem("nc_username") || "";
+
+        if (targetRoom && savedUsername) {
+          console.log(`[DIAGNOSTICS] Auto-rejoining room: ${targetRoom} with username: ${savedUsername}`);
+          console.log("[DIAGNOSTICS] Emit join_room", targetRoom);
+          s.emit("join_room", {
+            roomCode: targetRoom,
+            username: savedUsername,
+            playerId: res.playerId,
+            sessionToken: res.sessionToken
+          }, (resJoin: any) => {
+            if (resJoin.success) {
+              setSlot(resJoin.slot);
+              setUsername(savedUsername);
+              localStorage.setItem("nc_room_code", targetRoom);
+              setRoomState({
+                id: resJoin.roomId,
+                roomCode: resJoin.room.roomCode,
+                turnTimerSec: resJoin.room.turnTimerSec,
+                status: resJoin.room.status,
+                players: resJoin.room.players,
+                activeGameId: resJoin.game ? resJoin.game.id : null
+              });
+
+              if (resJoin.game) {
+                setGameState({
+                  id: resJoin.game.id,
+                  roomId: resJoin.roomId,
+                  player1Secret: "",
+                  player2Secret: "",
+                  player1Revealed: resJoin.slot === 1 ? resJoin.game.myRevealedBoard : resJoin.game.opponentRevealedBoard,
+                  player2Revealed: resJoin.slot === 2 ? resJoin.game.myRevealedBoard : resJoin.game.opponentRevealedBoard,
+                  player1Guesses: resJoin.slot === 1 ? resJoin.game.myGuesses : resJoin.game.opponentGuesses,
+                  player2Guesses: resJoin.slot === 2 ? resJoin.game.myGuesses : resJoin.game.opponentGuesses,
+                  currentTurnSlot: resJoin.game.currentTurnSlot,
+                  turnNumber: resJoin.game.turnNumber,
+                  status: resJoin.game.status,
+                  timerEndsAt: resJoin.game.timerEndsAt,
+                  winnerSlot: resJoin.game.winnerSlot,
+                  startedAt: new Date().toISOString(),
+                  endedAt: null,
+                  consecutiveTimeouts: { 1: 0, 2: 0 }
+                });
+              } else {
+                setGameState(null);
+              }
+
+              if (resJoin.chats) {
+                setChats(resJoin.chats);
+              }
+
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } else {
+              localStorage.removeItem("nc_room_code");
+              if (resJoin.error) {
+                setError(resJoin.error);
+              }
+            }
+          });
+        }
       });
-    });
+    };
+
+    if (s.connected) {
+      handleConnect();
+    }
+
+    s.on("connect", handleConnect);
 
     s.on("disconnect", () => {
+      console.log("[DIAGNOSTICS] Socket Disconnected");
       setConnection((prev) => ({ ...prev, connected: false }));
     });
 
-    // Handle universal error broadcasts
     s.on("error", (err: { code: string; message: string }) => {
+      console.log("[DIAGNOSTICS] Socket Error:", err);
       setError(err);
     });
 
-    // Real-time synchronization events
     s.on("player_joined", (data: { slot: number; username: string; joinedCount: number; players: any[] }) => {
+      console.log("[DIAGNOSTICS] Receive player_joined", data);
       setRoomState((prev) => {
         if (!prev) return null;
-        // Merge player
-        const updatedPlayers = [...prev.players];
-        const existingIdx = updatedPlayers.findIndex(p => p.slot === data.slot);
-        
-        const newPlayer = {
-          playerId: `player_${data.slot}`,
-          userId: null,
-          username: data.username,
-          slot: data.slot as 1 | 2,
-          connected: true,
-          sessionToken: ""
-        };
-
-        if (existingIdx !== -1) {
-          updatedPlayers[existingIdx] = { ...updatedPlayers[existingIdx], ...newPlayer };
-        } else {
-          updatedPlayers.push(newPlayer);
-        }
-
         return {
           ...prev,
           status: data.joinedCount === 2 ? "READY" : "WAITING_FOR_PLAYER",
-          players: updatedPlayers
+          players: data.players
         };
       });
     });
@@ -131,10 +206,11 @@ export function useGameSocket() {
     });
 
     s.on("game_started", (data: { turnTimerSec: number | null; firstTurnSlot: number; timerEndsAt: string | null }) => {
+      console.log("[DIAGNOSTICS] Receive game_started", data);
       setRoomState((prev) => prev ? { ...prev, status: "PLAYING" } : null);
       setGameState({
         id: "active",
-        roomId: roomState?.id || "",
+        roomId: roomStateRef.current?.id || "",
         player1Secret: "",
         player2Secret: "",
         player1Revealed: ["_", "_", "_", "_"],
@@ -155,6 +231,7 @@ export function useGameSocket() {
     });
 
     s.on("turn_changed", (data: { currentTurnSlot: number; turnNumber: number; timerEndsAt: string | null }) => {
+      console.log("[DIAGNOSTICS] Receive turn_changed", data);
       setGameState((prev) => {
         if (!prev) return null;
         return {
@@ -164,16 +241,15 @@ export function useGameSocket() {
           timerEndsAt: data.timerEndsAt,
           consecutiveTimeouts: {
             ...prev.consecutiveTimeouts,
-            // Reset the other player's consecutive timeouts on successful turn swap
             [data.currentTurnSlot === 1 ? 2 : 1]: 0
           }
         };
       });
-      // Clear any temporary stall warning
       setStallState({ isStalled: false, stalledSlot: null, message: "" });
     });
 
     s.on("guess_result", (data: { playerSlot: number; guess: string; correctPosition: number; newlyRevealed: number[]; revealedBoard: string[] }) => {
+      console.log("[DIAGNOSTICS] Receive guess_result", data);
       setGameState((prev) => {
         if (!prev) return null;
         const newRecord = {
@@ -215,17 +291,16 @@ export function useGameSocket() {
         };
       });
       
-      // Fetch stats
-      if (roomState) {
-        const p1 = roomState.players.find(p => p.slot === 1)?.playerId || "p1";
-        const p2 = roomState.players.find(p => p.slot === 2)?.playerId || "p2";
-        s.emit("get_head_to_head_stats", { roomId: roomState.id, p1Id: p1, p2Id: p2 }, (stats: BattleStats) => {
+      const currentRoomState = roomStateRef.current;
+      if (currentRoomState) {
+        const p1 = currentRoomState.players.find(p => p.slot === 1)?.playerId || "p1";
+        const p2 = currentRoomState.players.find(p => p.slot === 2)?.playerId || "p2";
+        s.emit("get_head_to_head_stats", { roomId: currentRoomState.id, p1Id: p1, p2Id: p2 }, (stats: BattleStats) => {
           setBattleStats(stats);
         });
       }
     });
 
-    // Connection resilience updates
     s.on("player_disconnected", (data: { slot: number; graceEndsAt: string }) => {
       setConnection((prev) => ({
         ...prev,
@@ -256,7 +331,6 @@ export function useGameSocket() {
       });
     });
 
-    // Stall handling
     s.on("stall_detected", (data: { stalledSlot: number; opponentSlot: number; message: string }) => {
       setStallState({
         isStalled: true,
@@ -269,9 +343,8 @@ export function useGameSocket() {
       setStallState({ isStalled: false, stalledSlot: null, message: "" });
     });
 
-    // Rematch updates
     s.on("rematch_requested", (data: { slot: number }) => {
-      if (data.slot !== slot) {
+      if (data.slot !== slotRef.current) {
         setOpponentRematchRequested(true);
       } else {
         setMyRematchRequested(true);
@@ -287,6 +360,8 @@ export function useGameSocket() {
     });
 
     s.on("room_closed", (data: { reason: string; message: string }) => {
+      console.log("[DIAGNOSTICS] Receive room_closed", data);
+      localStorage.removeItem("nc_room_code");
       setRoomState((prev) => prev ? { ...prev, status: "CLOSED" } : null);
       setGameState(null);
       setError({ code: "ROOM_CLOSED", message: data.message });
@@ -297,17 +372,41 @@ export function useGameSocket() {
     });
 
     return () => {
-      s.disconnect();
+      s.off("connect");
+      s.off("disconnect");
+      s.off("error");
+      s.off("player_joined");
+      s.off("player_ready_status");
+      s.off("game_started");
+      s.off("turn_changed");
+      s.off("guess_result");
+      s.off("game_finished");
+      s.off("player_disconnected");
+      s.off("player_reconnected");
+      s.off("stall_detected");
+      s.off("stall_resumed");
+      s.off("rematch_requested");
+      s.off("rematch_accepted");
+      s.off("room_closed");
+      s.off("chat_broadcast");
     };
-  }, [slot, roomState?.id]);
+  }, []);
 
   // C2S Actions
   const createNewRoom = useCallback((turnTimerSec: number | null) => {
-    if (!socketRef.current) return;
+    const s = getSocket();
     setError(null);
-    socketRef.current.emit("create_room", { turnTimerSec }, (res: { roomCode: string; roomId: string; playerId: string; sessionToken: string; slot: number }) => {
+    console.log("[DIAGNOSTICS] Emit create_room");
+    s.emit("create_room", { turnTimerSec }, (res: any) => {
+      if (res.success === false) {
+        setError(res.error);
+        return;
+      }
       setSlot(1);
       setUsername("Host");
+      localStorage.setItem("nc_room_code", res.roomCode);
+      localStorage.setItem("nc_username", "Host");
+
       setRoomState({
         id: res.roomId,
         roomCode: res.roomCode,
@@ -325,22 +424,30 @@ export function useGameSocket() {
         ],
         activeGameId: null
       });
+
+      window.history.replaceState({}, document.title, window.location.pathname);
     });
   }, []);
 
   const joinExistingRoom = useCallback((roomCode: string, userHandle: string) => {
-    if (!socketRef.current) return;
+    const s = getSocket();
     setError(null);
     const cleanUsername = userHandle.trim().slice(0, 15);
-    
-    socketRef.current.emit(
+    const pId = playerIdRef.current;
+    const sToken = sessionTokenRef.current;
+
+    console.log("[DIAGNOSTICS] Emit join_room", roomCode);
+    s.emit(
       "join_room", 
-      { roomCode, username: cleanUsername, playerId, sessionToken }, 
-      (res: { success: boolean; roomId: string; slot: 1 | 2; playerId?: string; sessionToken?: string; room: any; game?: any; chats?: ChatMessage[]; reconnected?: boolean }) => {
+      { roomCode, username: cleanUsername, playerId: pId, sessionToken: sToken }, 
+      (res: any) => {
         if (res.success) {
           setSlot(res.slot);
           setUsername(cleanUsername || (res.slot === 1 ? "Host" : "Opponent"));
           
+          localStorage.setItem("nc_room_code", roomCode.toUpperCase());
+          localStorage.setItem("nc_username", cleanUsername);
+
           if (res.playerId && res.sessionToken) {
             setPlayerId(res.playerId);
             setSessionToken(res.sessionToken);
@@ -376,92 +483,135 @@ export function useGameSocket() {
               endedAt: null,
               consecutiveTimeouts: { 1: 0, 2: 0 }
             });
+          } else {
+            setGameState(null);
           }
 
           if (res.chats) {
             setChats(res.chats);
           }
 
-          // Fetch head-to-head stats if reconnected
           if (res.reconnected && res.game) {
             const p1 = res.room.players.find((p: any) => p.slot === 1)?.playerId || "p1";
             const p2 = res.room.players.find((p: any) => p.slot === 2)?.playerId || "p2";
-            socketRef.current?.emit("get_head_to_head_stats", { roomId: res.roomId, p1Id: p1, p2Id: p2 }, (stats: BattleStats) => {
+            s.emit("get_head_to_head_stats", { roomId: res.roomId, p1Id: p1, p2Id: p2 }, (stats: BattleStats) => {
               setBattleStats(stats);
             });
+          }
+
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } else {
+          localStorage.removeItem("nc_room_code");
+          if (res.error) {
+            setError(res.error);
           }
         }
       }
     );
-  }, [playerId, sessionToken]);
+  }, []);
 
   const submitSecret = useCallback((secret: string) => {
-    if (!socketRef.current || !roomState) return;
+    const s = getSocket();
+    const currentRoom = roomStateRef.current;
+    if (!s || !currentRoom) return;
     setError(null);
-    socketRef.current.emit("submit_secret", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken,
+    s.emit("submit_secret", {
+      roomId: currentRoom.id,
+      playerId: playerIdRef.current,
+      sessionToken: sessionTokenRef.current,
       secret
+    }, (res: any) => {
+      if (res && !res.success) {
+        setError(res.error);
+      }
     });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const submitGuess = useCallback((guess: string) => {
-    if (!socketRef.current || !roomState) return;
+    const s = getSocket();
+    const currentRoom = roomStateRef.current;
+    if (!s || !currentRoom) return;
     setError(null);
-    socketRef.current.emit("submit_guess", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken,
+    s.emit("submit_guess", {
+      roomId: currentRoom.id,
+      playerId: playerIdRef.current,
+      sessionToken: sessionTokenRef.current,
       guess
+    }, (res: any) => {
+      if (res && !res.success) {
+        setError(res.error);
+      }
     });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const claimTimeoutVictory = useCallback(() => {
-    if (!socketRef.current || !roomState) return;
-    socketRef.current.emit("claim_timeout_victory", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken
+    const s = getSocket();
+    const currentRoom = roomStateRef.current;
+    if (!s || !currentRoom) return;
+    s.emit("claim_timeout_victory", {
+      roomId: currentRoom.id,
+      playerId: playerIdRef.current,
+      sessionToken: sessionTokenRef.current
+    }, (res: any) => {
+      if (res && !res.success) {
+        setError(res.error);
+      }
     });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const keepWaitingStall = useCallback(() => {
-    if (!socketRef.current || !roomState) return;
-    socketRef.current.emit("keep_waiting_stall", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken
+    const s = getSocket();
+    const currentRoom = roomStateRef.current;
+    if (!s || !currentRoom) return;
+    s.emit("keep_waiting_stall", {
+      roomId: currentRoom.id,
+      playerId: playerIdRef.current,
+      sessionToken: sessionTokenRef.current
+    }, (res: any) => {
+      if (res && !res.success) {
+        setError(res.error);
+      }
     });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const requestRematch = useCallback(() => {
-    if (!socketRef.current || !roomState) return;
-    socketRef.current.emit("request_rematch", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken
+    const s = getSocket();
+    const currentRoom = roomStateRef.current;
+    if (!s || !currentRoom) return;
+    s.emit("request_rematch", {
+      roomId: currentRoom.id,
+      playerId: playerIdRef.current,
+      sessionToken: sessionTokenRef.current
+    }, (res: any) => {
+      if (res && !res.success) {
+        setError(res.error);
+      }
     });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const sendChat = useCallback((text: string) => {
-    if (!socketRef.current || !roomState || !text.trim()) return;
-    socketRef.current.emit("send_chat", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken,
+    const s = getSocket();
+    const currentRoom = roomStateRef.current;
+    if (!s || !currentRoom || !text.trim()) return;
+    s.emit("send_chat", {
+      roomId: currentRoom.id,
+      playerId: playerIdRef.current,
+      sessionToken: sessionTokenRef.current,
       text
     });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const leaveRoom = useCallback(() => {
-    if (!socketRef.current || !roomState) return;
-    socketRef.current.emit("leave_room", {
-      roomId: roomState.id,
-      playerId,
-      sessionToken
-    });
+    const s = getSocket();
+    if (roomStateRef.current) {
+      s.emit("leave_room", {
+        roomId: roomStateRef.current.id,
+        playerId: playerIdRef.current,
+        sessionToken: sessionTokenRef.current
+      });
+    }
     // Hard reset client-side states
+    localStorage.removeItem("nc_room_code");
     setRoomState(null);
     setGameState(null);
     setSlot(null);
@@ -470,7 +620,7 @@ export function useGameSocket() {
     setOpponentRematchRequested(false);
     setMyRematchRequested(false);
     setStallState({ isStalled: false, stalledSlot: null, message: "" });
-  }, [roomState, playerId, sessionToken]);
+  }, []);
 
   const clearError = () => setError(null);
 

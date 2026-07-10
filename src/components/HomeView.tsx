@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Sparkles, Timer, Play, User, HelpCircle } from "lucide-react";
 
 interface HomeViewProps {
@@ -6,14 +6,33 @@ interface HomeViewProps {
   onJoinRoom: (roomCode: string, username: string) => void;
   error: { code: string; message: string } | null;
   onClearError: () => void;
+  initialRoomCode?: string;
+  initialTab?: "create" | "join";
 }
 
-export default function HomeView({ onCreateRoom, onJoinRoom, error, onClearError }: HomeViewProps) {
-  const [roomCode, setRoomCode] = useState("");
-  const [username, setUsername] = useState("");
+export default function HomeView({ 
+  onCreateRoom, 
+  onJoinRoom, 
+  error, 
+  onClearError,
+  initialRoomCode = "",
+  initialTab = "create"
+}: HomeViewProps) {
+  const [roomCode, setRoomCode] = useState(initialRoomCode);
+  const [username, setUsername] = useState(() => localStorage.getItem("nc_username") || "");
   const [timerPreset, setTimerPreset] = useState<number | null>(60); // Default: 60s
-  const [activeTab, setActiveTab] = useState<"create" | "join">("create");
+  const [activeTab, setActiveTab] = useState<"create" | "join">(initialTab);
   const [showHowTo, setShowHowTo] = useState(false);
+
+  // Sync props dynamically if they change (e.g. on new URL navigation)
+  useEffect(() => {
+    if (initialRoomCode) {
+      setRoomCode(initialRoomCode);
+    }
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialRoomCode, initialTab]);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();

@@ -33,11 +33,9 @@ export default function App() {
 
   // URL Auto-Lobby Detection
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("code");
-    if (code && !roomState) {
-      // Pre-fill / join with default Guest username or prompt the user
-      // Let's not auto-join without a click, but we can preserve the parameter
-      // We can also let the user enter their name.
+    const room = new URLSearchParams(window.location.search).get("room");
+    if (room && !roomState) {
+      // Auto-lobby joining/validation is fully managed inside useGameSocket connection handler.
     }
   }, [roomState]);
 
@@ -89,6 +87,8 @@ export default function App() {
             onJoinRoom={joinExistingRoom}
             error={error}
             onClearError={clearError}
+            initialRoomCode={new URLSearchParams(window.location.search).get("room") || ""}
+            initialTab={new URLSearchParams(window.location.search).get("room") ? "join" : "create"}
           />
         ) : roomState.status === "CREATED" || roomState.status === "WAITING_FOR_PLAYER" ? (
           <LobbyView 

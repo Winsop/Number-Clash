@@ -9,25 +9,38 @@ interface LobbyViewProps {
 }
 
 export default function LobbyView({ roomState, slot, onLeave }: LobbyViewProps) {
-  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(roomState.roomCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
     } catch (err) {
       // fallback
     }
   };
 
-  const inviteUrl = `${window.location.origin}/?code=${roomState.roomCode}`;
+  const inviteUrl = `${window.location.origin}/?room=${roomState.roomCode}`;
 
-  const copyUrl = async () => {
+  const shareOrCopyUrl = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Number Clash Duel Arena",
+          text: `Join my Number Clash duel! Code: ${roomState.roomCode}`,
+          url: inviteUrl,
+        });
+        return;
+      } catch (err) {
+        // user cancelled or share failed, fallback to copy
+      }
+    }
     try {
       await navigator.clipboard.writeText(inviteUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2000);
     } catch (err) {
       // fallback
     }
@@ -82,7 +95,7 @@ export default function LobbyView({ roomState, slot, onLeave }: LobbyViewProps) 
             onClick={copyCode}
             className="px-3 py-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-xs text-slate-300 font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
           >
-            {copied ? (
+            {copiedCode ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
                 Copied Code!
@@ -97,10 +110,10 @@ export default function LobbyView({ roomState, slot, onLeave }: LobbyViewProps) 
           <button
             type="button"
             id="btn-copy-url"
-            onClick={copyUrl}
+            onClick={shareOrCopyUrl}
             className="px-3 py-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-xs text-slate-300 font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
           >
-            {copied ? (
+            {copiedUrl ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
                 Copied Link!
@@ -108,7 +121,7 @@ export default function LobbyView({ roomState, slot, onLeave }: LobbyViewProps) 
             ) : (
               <>
                 <Copy className="w-3.5 h-3.5" />
-                Copy Arena Link
+                Share Arena Link
               </>
             )}
           </button>
@@ -129,7 +142,7 @@ export default function LobbyView({ roomState, slot, onLeave }: LobbyViewProps) 
           {roomState.players.map((p) => (
             <div key={p.slot} className="flex items-center justify-between py-1 px-2 bg-slate-900/30 rounded-lg border border-slate-850/20">
               <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className={`w-1.5 h-1.5 rounded-full ${p.connected ? "bg-emerald-400 animate-pulse" : "bg-rose-450 animate-pulse"}`} />
                 <span className="text-xs font-medium text-slate-200">
                   {p.username}
                 </span>
