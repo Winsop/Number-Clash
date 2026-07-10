@@ -1,3 +1,4 @@
+
 # Number Clash
 
 Number Clash is a real-time, competitive, multiplayer 4-digit number-guessing web game. Players challenge opponents in structured, fast-paced duels where deductive reasoning, tactical thinking, and speed are key.
@@ -77,3 +78,5 @@ SESSION_SECRET="your-cryptographic-secret-key"
     ```bash
     npm run test
     ```
+
+
