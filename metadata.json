@@ -1,0 +1,6 @@
+{
+  "name": "Number Clash",
+  "description": "Engineering documentation and specifications for Number Clash, a real-time multiplayer 4-digit number-guessing web game.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
