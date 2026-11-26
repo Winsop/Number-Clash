@@ -3,9 +3,17 @@
 
 Number Clash is a real-time, competitive, multiplayer 4-digit number-guessing web game. Players challenge opponents in structured, fast-paced duels where deductive reasoning, tactical thinking, and speed are key.
 
-The React 19 client connects to a Node.js and Socket.IO server. Open the app in two browser tabs, create a room in one, and join with the room code in the other.
+The React 19 client connects to a Node.js and Socket.IO server. Open the app in two separate browser profiles, or in a regular and a private window. Create a room in one and join using its code in the other. Two regular tabs in the same profile share the local player session.
 
 ---
+
+## Demo
+
+![Number Clash arena showing turn three, locked digit positions, and guess history](docs/number-clash-arena.png)
+
+![Number Clash results after a completed local duel](docs/number-clash-results.png)
+
+*Captured during a local game with demo identities. The browser trial covered room creation and joining, locking in secret numbers, scoring, synchronizing both players, reconnecting after reload, completing the game, and a rematch. Type checking and the production build also passed.*
 
 ## 🚀 Key Features
 
