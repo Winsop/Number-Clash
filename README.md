@@ -3,7 +3,7 @@
 
 Number Clash is a real-time, competitive, multiplayer 4-digit number-guessing web game. Players challenge opponents in structured, fast-paced duels where deductive reasoning, tactical thinking, and speed are key.
 
-This project implements an authoritative game backend, a resilient connection management engine, and a dark-slate theme built in React 19.
+The React 19 client connects to a Node.js and Socket.IO server. Open the app in two browser tabs, create a room in one, and join with the room code in the other.
 
 ---
 
@@ -12,7 +12,7 @@ This project implements an authoritative game backend, a resilient connection ma
 *   **Authoritative Backend:** The server validates guesses, coordinates turns, and keeps secrets hidden until the match is decided.
 *   **Auto-Advancing Input Grid:** A smooth, auto-focusing 4-digit input layout optimized for rapid typing on desktop and mobile.
 *   **Connection Resilience:** A 120-second backend grace period allows disconnected players to reconnect and restore active sessions.
-*   **Head-to-Head Statistics:** PostgreSQL tracking maintains head-to-head records, win/loss percentages, and competitive streaks.
+*   **Head-to-Head Statistics:** The server tracks head-to-head results in memory. Rooms, sessions, and stats are lost when the server restarts. PostgreSQL is a design proposal, not a runtime dependency of this version.
 *   **Polished Dark Theme:** A slate-colored theme designed for long thinking sessions, with transitions powered by `motion/react`.
 
 ---
@@ -23,7 +23,7 @@ The complete architecture, design specs, and roadmaps are stored in the `/docs` 
 
 1.  **[01_GAME_RULES.md](docs/01_GAME_RULES.md)** — Core deduction algorithms, feedback, and turn timers.
 2.  **[02_SYSTEM_ARCHITECTURE.md](docs/02_SYSTEM_ARCHITECTURE.md)** — Network topologies, state machines, and load scaling.
-3.  **[03_DATABASE_SCHEMA.md](docs/03_DATABASE_SCHEMA.md)** — Database models, head-to-head stats, and index strategies.
+3.  **[03_DATABASE_SCHEMA.md](docs/03_DATABASE_SCHEMA.md)** — Proposed persistent database models, head-to-head stats, and index strategies.
 4.  **[04_SOCKET_EVENTS.md](docs/04_SOCKET_EVENTS.md)** — Complete Socket.IO event payloads, validations, and flows.
 5.  **[05_UI_SPEC.md](docs/05_UI_SPEC.md)** — Visual design, layout specifications, and animation values.
 6.  **[06_BACKEND_SPEC.md](docs/06_BACKEND_SPEC.md)** — Server class structures, zero-trust token validation, and rate limiters.
@@ -39,8 +39,7 @@ The complete architecture, design specs, and roadmaps are stored in the `/docs` 
 ## 🛠️ Developer Setup & Commands
 
 ### Prerequisites
-*   **Node.js** (v18 or higher)
-*   **PostgreSQL** (running locally or in the cloud)
+*   **Node.js** and **npm**. Use Node.js 22 for local setup.
 
 ### Installation
 Clone the repository and install all dependencies:
@@ -49,16 +48,14 @@ npm install
 ```
 
 ### Environment Configuration
-Create a `.env` file in the root directory and configure the environment variables:
+The local app defaults to port 3000. To use a different port, set `PORT` in a local `.env` file:
 ```env
 PORT=3000
-DATABASE_URL="postgresql://user:password@localhost:5432/numberclash"
-SESSION_SECRET="your-cryptographic-secret-key"
 ```
 
 ### Run Commands
 
-*   **Development Server:** Runs the client and server concurrently with HMR.
+*   **Development Server:** Starts the server with Vite development middleware. Open `http://localhost:3000` using the default port.
     ```bash
     npm run dev
     ```
@@ -70,13 +67,14 @@ SESSION_SECRET="your-cryptographic-secret-key"
     ```bash
     npm start
     ```
-*   **Linting:** Runs the TypeScript compiler and code quality checkers.
+*   **Linting:** Runs the TypeScript type checker.
     ```bash
     npm run lint
     ```
-*   **Run Tests:** Executes unit and integration test suites.
+*   **Local simulation:** With the development server running on port 3000, run the Socket.IO simulation in a second terminal:
     ```bash
-    npm run test
+    npx tsx simulate.ts
     ```
+    The repository also includes [a larger simulation](simulate_hundreds.ts) and [a testing guide](docs/08_TESTING.md).
 
 
